@@ -1,5 +1,5 @@
-# 从零部署大肥鱼：Windows → Ubuntu
-
+# 从零部署大肥鱼：Windows → Ubuntu。
+# 基于 AstrBot 和 NapCat，将 DeepSeek 接入 QQ，并支持在 Ubuntu 云服务器上一键部署。
 ## 1. 填写密钥
 
 首次使用，如果目录中有 `key.example.txt`，复制为 `key.txt`；没有就按本表字段新建 `key.txt`。用记事本以 UTF-8 保存。配置字段每行 `名称=值`，按字段名读取，可调整顺序，不要加引号；密码里有 `=`、`#` 不需要转义。已收到填写好的 `key.txt` 时直接编辑。成功后自动写在末尾的两行 URL 仅供查看，读取配置时会忽略。
