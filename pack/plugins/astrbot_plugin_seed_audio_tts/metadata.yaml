@@ -1,0 +1,7 @@
+name: astrbot_plugin_seed_audio_tts
+display_name: 豆包语音合成 Seed-TTS 2.0
+desc: 给 AstrBot 加一个「豆包·语音合成模型 Seed-TTS 2.0（seed-tts-2.0）」语音合成提供商：选好音色把文字念成语音，可整条回复合成一条发出来；新版控制台的 API Key 直接鉴权。
+help: 装好后到「模型提供商 → 语音合成」新增类型 seed_audio_tts，填豆包语音控制台的 API Key（必填）和 App ID（可选），音色默认 vivi 2.0（zh_female_vv_uranus_bigtts）；也兼容旧版 Seed Audio 1.0 的 APP ID + Access Token。
+version: v0.4.0
+author: dafeiyu-pack
+repo: ""

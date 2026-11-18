@@ -1,0 +1,30 @@
+{
+  "backend": {
+    "description": "用哪个模型唱",
+    "type": "string",
+    "options": ["doubao"],
+    "hint": "豆包 Seed Audio 1.0（旧版）云端唱歌，需要账号开通 Seed Audio 权限；Seed-TTS 2.0 只能说话不能唱。唱的是她自编的小调，不照原曲调子。",
+    "default": "doubao"
+  },
+  "doubao_api_key": {
+    "description": "豆包语音 API Key（旧的 Seed Audio 服务也能用 API Key 鉴权；留空就借「豆包 Seed Audio」语音提供商那套，或改用下面的 APP ID + Access Token）",
+    "type": "string",
+    "default": ""
+  },
+  "doubao_app_id": {
+    "description": "豆包语音 APP ID（旧版控制台；留空就用语音提供商「豆包 Seed Audio」那套）",
+    "type": "string",
+    "default": ""
+  },
+  "doubao_access_token": {
+    "description": "豆包语音 Access Token（旧版控制台；留空就用语音提供商那套）",
+    "type": "string",
+    "default": ""
+  },
+  "doubao_tries": {
+    "description": "豆包最多抽几次",
+    "type": "int",
+    "hint": "唱出来的字和歌词对不上八成才再抽一次；每抽一次都按时长收钱",
+    "default": 2
+  }
+}

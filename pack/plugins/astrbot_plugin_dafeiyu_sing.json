@@ -1,0 +1,9 @@
+{
+  "name": "astrbot_plugin_dafeiyu_sing",
+  "what": "唱歌：走旧版 Seed Audio 1.0（Seed-TTS 2.0 只能说话不能唱），唱的是她自编的小调",
+  "only_with_voice": "3",
+  "always_reinstall": true,
+  "config": {
+    "backend": "{唱歌后端}"
+  }
+}

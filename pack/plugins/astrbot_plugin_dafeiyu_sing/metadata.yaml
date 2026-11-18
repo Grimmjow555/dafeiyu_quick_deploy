@@ -1,0 +1,8 @@
+name: astrbot_plugin_dafeiyu_sing
+display_name: 大肥鱼唱歌
+desc: 让机器人现编歌词唱成语音发出来；走豆包 Seed Audio 1.0（旧版）唱歌，优先用旧版凭证，没有就借语音提供商的 API Key（同一个豆包账号）；Seed-TTS 2.0 只能说话，唱不了
+help: 跟它说「给我唱首歌」「唱个生日歌」
+version: v0.3.2
+author: zexuan604
+support_platforms:
+  - aiocqhttp
