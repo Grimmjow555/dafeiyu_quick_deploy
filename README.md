@@ -1,5 +1,5 @@
-# 从零部署大肥鱼：Windows → Ubuntu。
-# 基于 AstrBot 和 NapCat，将 DeepSeek 接入 QQ，并支持在 Ubuntu 云服务器上一键部署。
+# 从零部署大肥鱼：Windows → Ubuntu
+
 ## 1. 填写密钥
 
 首次使用，如果目录中有 `key.example.txt`，复制为 `key.txt`；没有就按本表字段新建 `key.txt`。用记事本以 UTF-8 保存。配置字段每行 `名称=值`，按字段名读取，可调整顺序，不要加引号；密码里有 `=`、`#` 不需要转义。已收到填写好的 `key.txt` 时直接编辑。成功后自动写在末尾的两行 URL 仅供查看，读取配置时会忽略。
@@ -37,6 +37,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\upload.ps1
 ```
 
 脚本会直接读取 `key.txt` 中的 `SSH_PASSWORD`，上传、连接服务器和同步 Token 都无需再次输入密码。SSH 固定使用默认端口 22；密码不会显示在终端或放进命令行。仅使用 Windows 自带的 tar、OpenSSH 和 .NET Framework，不需要本机安装 Python。
+
+如果更习惯图形界面，可使用第 6 节的本地 Qt 控制台（可选；可直接使用打包好的 exe，也可从源码运行，命令行方式仍可独立使用）。
 
 保留同目录下的 `ssh-askpass.cs`：脚本会在 Windows 系统临时目录编译密码读取助手，并在退出时自动清理助手、传输包等临时文件。项目目录中只保留发布用文件。
 
@@ -219,3 +221,86 @@ sudo bash ~/dafeiyu/stop.sh --timeout 120
 
 身份验证信息失效，不使用国家数字身份认证平台解封链接（在小号QQ中通过发消息打开）
 https://accounts.qq.com/safe/message/unlock/verify?punish_id=10201&reason=12
+
+## 6. 本地图形界面（可选）
+
+`dafeiyu_gui/` 是 `upload.ps1` 的本地 Qt 桌面封装，适合不想反复输入 PowerShell 命令的场景。它**只在本机运行**，不会上传到服务器，也不改变任何部署逻辑；命令行部署、启动、停止方式继续完全可用。
+
+![本地 Qt 控制台界面预览](docs/gui-preview.png)
+
+### 直接运行 exe（推荐）
+
+项目目录已生成 `大肥鱼控制台.exe`（Windows 10/11 x64 单文件程序），双击即可启动，不需要安装 Python、PyQt5 或打开命令行窗口。
+
+- exe 是单文件程序，但仍需要通过项目里的 `upload.ps1`、`key.txt` 等文件操作服务器：请把它放在项目目录中（与本 README、`upload.ps1`、`key.txt` 同级）。如果放在项目根目录下的 `dist` 子目录，启动时会自动向上一级查找项目文件。
+- 单文件 exe 首次启动会解压到系统临时目录，可能需要等待几秒。
+- 如果启动时提示 “Could not create temporary directory”，说明系统临时目录不可写；请检查 `%TEMP%` 权限，或从源码运行。
+- 如果杀毒软件对 PyInstaller 单文件报启发式误报，可将它加入信任，或改用下面的源码运行方式。
+- exe 未做代码签名，Windows SmartScreen 可能提示“未知发布者”；确认文件来自本项目后可选择继续运行。
+- 不要把 exe 单独复制到一个没有项目文件的目录；那样界面会提示找不到 `upload.ps1` / `key.txt`，且不会包含任何服务器凭证。
+
+### 从源码运行（可选）
+
+需要 Windows + Python 3.10 或更高版本，并安装依赖：
+
+```powershell
+python -m pip install -r requirements-gui.txt
+```
+
+然后在项目目录双击 `run_gui.bat`。也可以手动启动：
+
+```powershell
+python -m dafeiyu_gui
+```
+
+当前目录不是项目根目录时，先切换到项目目录再运行，或把项目目录加入 `PYTHONPATH`：
+
+```powershell
+cd D:\path\to\dafeiyu_quick_deploy
+python -m dafeiyu_gui
+```
+
+`--project-root` 仅供测试或特殊布局使用，不能代替 Python 的模块导入路径。
+
+图形界面打开后，先到「配置」页检查 `key.txt`，保存后再点「一键部署 / 更新」。`run_gui.bat` 出错时会提示缺少 Python 还是缺少 PyQt5。
+
+### 重新构建 exe
+
+项目已附带生成好的 `大肥鱼控制台.exe`；修改 GUI 源码后可按下面重新构建（需要 PyInstaller 和 Pillow，仅构建时使用）：
+
+```powershell
+python -m pip install -r requirements-build.txt
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_gui_exe.ps1
+```
+
+产物是项目根目录的 `大肥鱼控制台.exe`；构建缓存位于 `build/gui-exe/`，已加入 `.gitignore`。图标会由 `tools/make_gui_icon.py` 从 `dafeiyu_gui/assets/app.svg` 生成。
+
+### 功能
+
+| 界面操作 | 实际执行 |
+|---|---|
+| 一键部署 / 更新 | `upload.ps1`（部署前确认；首次可能较久） |
+| 刷新状态、F5 | `upload.ps1 -Status` |
+| 启动服务 | `upload.ps1 -Start` |
+| 停止服务… | `upload.ps1 -Stop`，可勾选仅预览 `--dry-run`、移除容器 `--down`、自定义超时 |
+| 同步 Token | `upload.ps1 -SyncKey` |
+| 同步密码兜底 | `upload.ps1 -SyncPassword`（仅当项目目录有 `QQ.txt`） |
+| SSH 终端 | 新窗口执行 `upload.ps1 -Connect` |
+| 后台地址 | 用系统浏览器打开 AstrBot / NapCat WebUI |
+
+界面还会显示服务、QQ、掉线守护、语音、记忆和插件状态，实时显示中文运行日志，并在部署过程中按 `[1/6]`…`[6/6]` 推进阶段条。状态**不会自动轮询**，避免触发 NapCat 的登录限流；需要最新状态时点「刷新状态」。
+
+### 安全边界
+
+- 敏感字段（SSH 密码、API Key、Token、Webhook）默认隐藏，不会写入日志、复制内容或本地状态文件；日志复制/保存前还会按 key.txt 中的值再做一层脱敏。
+- 界面**不会读取或显示 `QQ.txt` 的内容**，不提供 QQ 密码输入框，也不会自动登录、扫码或发送 QQ 消息。
+- SSH 主机密钥变化时，界面会暂停部署并显示旧/新指纹，必须由你先在服务器控制台核对，再手动输入 `YES`；不会自动确认。取消后原有 known_hosts 记录保持不变。
+- 一键部署、启动、停止等都是幂等的；运行中可以取消，但远程部署可能被中断，恢复后重跑一次即可。
+- 界面不会在启动时自动连接服务器；关闭窗口时如有操作在运行，会先确认。
+
+### 配置与常见问题
+
+- 「配置」页按 `key.txt` 字段分组；保存时保留注释、字段顺序、CRLF/LF、BOM、末尾 `AstrBot:`/`NapCat:` URL 行和未知字段，只更新界面管理的字段。保存后需要重新运行一键部署才会生效。
+- 密码兜底仍按第 4 节：在项目目录创建 `QQ.txt` 后，部署成功会自动同步；也可用界面的「同步密码兜底」。只想在服务器本地配置时，可在「SSH 终端」里执行 `sudo python3 qq_watchdog.py --set-password`。
+- 部署成功但 QQ 未登录是正常状态，点击「NapCat 扫码登录」自行扫码。自动恢复、限流、语音失败等情况的处理与命令行方式完全相同。
+- 需要单独排查界面逻辑时，可运行 `python -m unittest discover -s tests -t . -v`（单元测试使用合成配置，不读取真实 key.txt，也不连接服务器）。

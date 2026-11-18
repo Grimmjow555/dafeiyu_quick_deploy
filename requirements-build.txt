@@ -1,0 +1,4 @@
+# 仅在重新构建 exe 时需要；普通用户直接运行 大肥鱼控制台.exe 即可。
+-r requirements-gui.txt
+pyinstaller>=6.10
+pillow>=10
