@@ -5,18 +5,19 @@ from __future__ import annotations
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
 
+from dafeiyu_gui.ui.widgets import MAX_CONTENT_WIDTH
+
 
 _HELP_HTML = """
 <h2>使用顺序</h2>
 <ol>
-  <li>在「配置」页确认 key.txt 的服务器、DeepSeek、AstrBot 账号密码等字段齐全，并保存。</li>
+  <li>在「配置」页确认 key.txt 的服务器、DeepSeek、AstrBot 账号密码等字段齐全，并保存（Ctrl+S）。</li>
   <li>点击「一键部署 / 更新」。首次会下载镜像和插件，可能持续十几分钟；重复运行是幂等的。</li>
   <li>部署完成后，点击「NapCat 扫码登录」，用机器人小号的手机 QQ 扫码并按腾讯提示确认。</li>
   <li>用你的 QQ 给机器人发一条消息测试回复。首次部署完成但 QQ 未登录属于正常状态。</li>
@@ -24,7 +25,7 @@ _HELP_HTML = """
 
 <h2>日常操作</h2>
 <ul>
-  <li><b>刷新状态</b>：执行 upload.ps1 -Status；不会自动轮询，避免触发 NapCat 登录接口限流。</li>
+  <li><b>刷新状态（F5）</b>：执行 upload.ps1 -Status；不会自动轮询，避免触发 NapCat 登录接口限流。</li>
   <li><b>启动 / 停止服务</b>：对应服务器上的 start.sh / stop.sh；停止不删除 data/、napcat/。</li>
   <li><b>同步 Token</b>：部署结束时通常已自动完成；失败时可单独重试。</li>
   <li><b>同步密码兜底</b>：仅当项目目录存在 QQ.txt 时可用；界面不读取文件内容。</li>
@@ -65,18 +66,17 @@ class HelpPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        column = QWidget()
+        column.setMaximumWidth(MAX_CONTENT_WIDTH)
+        layout = QVBoxLayout(column)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
-        title = QLabel("使用帮助")
-        title.setObjectName("PageTitle")
-        layout.addWidget(title)
-        description = QLabel(
-            "图形界面只调用现有部署脚本；它不替代命令行，也不改变服务器端的任何行为。"
-        )
-        description.setObjectName("PageDescription")
-        description.setWordWrap(True)
-        layout.addWidget(description)
         view = QTextBrowser()
         view.setObjectName("HelpView")
         view.setOpenExternalLinks(True)
@@ -92,3 +92,7 @@ class HelpPage(QWidget):
         buttons.addWidget(folder)
         buttons.addStretch(1)
         layout.addLayout(buttons)
+        row.addStretch(1)
+        row.addWidget(column, 1000)
+        row.addStretch(1)
+        outer.addLayout(row, 1)

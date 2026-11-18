@@ -9,7 +9,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-from PyQt5.QtCore import QSettings, Qt, QTimer, QUrl
+from PyQt5.QtCore import QSettings, QSize, Qt, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices, QKeySequence
 from PyQt5.QtWidgets import (
     QApplication,
@@ -43,12 +43,12 @@ from dafeiyu_gui.backend.redact import Redactor
 from dafeiyu_gui.backend.runner import ProcessOutcome, strip_ansi
 from dafeiyu_gui.backend.status import StatusReport, parse_status
 from dafeiyu_gui.backend.steps import StepTracker
-from dafeiyu_gui.ui import dialogs, theme
+from dafeiyu_gui.ui import dialogs, icons, theme
 from dafeiyu_gui.ui.help_page import HelpPage
 from dafeiyu_gui.ui.overview import OverviewPage
 from dafeiyu_gui.ui.runner_bridge import RunnerBridge
 from dafeiyu_gui.ui.settings_page import SettingsPage
-from dafeiyu_gui.ui.widgets import open_local_path
+from dafeiyu_gui.ui.widgets import MAX_CONTENT_WIDTH, open_local_path
 
 _ERROR_RE = re.compile(
     r"(?i)(错误|失败|error|failed|traceback|exception|denied|refused|无法|timed out|超时)"
@@ -58,6 +58,13 @@ _SUCCESS_RE = re.compile(r"(完成|成功|已启动|已停止|已部署|已保�
 
 
 class MainWindow(QMainWindow):
+    # 顶栏只显示"当前页面"，不再和侧栏品牌重复。
+    _PAGE_META: tuple[tuple[str, str], ...] = (
+        ("总览", "状态、后台入口与运行日志"),
+        ("配置", "字段与 key.txt 一致，保存保留注释与顺序"),
+        ("帮助", "图形界面只是 upload.ps1 的封装，命令行始终可用"),
+    )
+
     def __init__(
         self,
         project_root: Path,
@@ -92,10 +99,11 @@ class MainWindow(QMainWindow):
         self._closing = False
 
         self.setWindowTitle(APP_NAME)
-        self.setMinimumSize(980, 760)
+        self.setMinimumSize(900, 620)
         self.resize(1180, 820)
         self.setWindowIcon(QApplication.windowIcon())
         self._build_ui()
+        self._apply_icons(theme.THEMES[self._theme_name])
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
@@ -129,7 +137,6 @@ class MainWindow(QMainWindow):
         brand_text.setSpacing(0)
         name = QLabel("大肥鱼")
         name.setObjectName("AppTitle")
-        name.setStyleSheet("font-size: 13pt;")
         brand_text.addWidget(name)
         sub = QLabel("本地部署控制台")
         sub.setObjectName("AppSubtitle")
@@ -142,8 +149,8 @@ class MainWindow(QMainWindow):
         self._nav_group = QButtonGroup(self)
         self._nav_group.setExclusive(True)
         self._nav_buttons: list[QPushButton] = []
-        for index, text in enumerate(("总览", "配置", "帮助")):
-            button = QPushButton(f"  {text}")
+        for index, (text, _subtitle) in enumerate(self._PAGE_META):
+            button = QPushButton(text)
             button.setObjectName("NavButton")
             button.setCheckable(True)
             button.setCursor(Qt.PointingHandCursor)
@@ -158,7 +165,6 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(about)
         version = QLabel(f"v{__version__}")
         version.setObjectName("Subtle")
-        version.setStyleSheet("font-size: 8pt;")
         sidebar_layout.addWidget(version)
         outer.addWidget(sidebar)
 
@@ -173,13 +179,12 @@ class MainWindow(QMainWindow):
         header_layout.setSpacing(10)
         heading = QVBoxLayout()
         heading.setSpacing(0)
-        title = QLabel("AstrBot + NapCat")
-        title.setObjectName("PageTitle")
-        title.setStyleSheet("font-size: 14pt;")
-        heading.addWidget(title)
-        subtitle = QLabel("从 Windows 部署并管理大肥鱼")
-        subtitle.setObjectName("AppSubtitle")
-        heading.addWidget(subtitle)
+        self.page_title = QLabel(self._PAGE_META[0][0])
+        self.page_title.setObjectName("PageTitle")
+        heading.addWidget(self.page_title)
+        self.page_subtitle = QLabel(self._PAGE_META[0][1])
+        self.page_subtitle.setObjectName("AppSubtitle")
+        heading.addWidget(self.page_subtitle)
         header_layout.addLayout(heading)
         header_layout.addStretch(1)
         self.server_chip = QLabel("未配置服务器")
@@ -190,7 +195,14 @@ class MainWindow(QMainWindow):
         self.theme_button.clicked.connect(self._toggle_theme)
         self._update_theme_button()
         header_layout.addWidget(self.theme_button)
-        content_layout.addWidget(header)
+        header.setMaximumWidth(MAX_CONTENT_WIDTH)
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(0)
+        header_row.addStretch(1)
+        header_row.addWidget(header, 1000)
+        header_row.addStretch(1)
+        content_layout.addLayout(header_row)
 
         self.stack = QStackedWidget()
         self.stack.setObjectName("Pages")
@@ -226,6 +238,8 @@ class MainWindow(QMainWindow):
 
         refresh_shortcut = QShortcut(QKeySequence("F5"), self)
         refresh_shortcut.activated.connect(lambda: self._request_action("status"))
+        save_shortcut = QShortcut(QKeySequence("Ctrl+S"), self)
+        save_shortcut.activated.connect(self._request_save)
         quit_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self)
         quit_shortcut.activated.connect(self.close)
 
@@ -240,17 +254,30 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(index)
         for position, button in enumerate(self._nav_buttons):
             button.setChecked(position == index)
+        title, subtitle = self._PAGE_META[index]
+        self.page_title.setText(title)
+        self.page_subtitle.setText(subtitle)
         if persist:
             self.qsettings.setValue("page", index)
+
+    def _apply_icons(self, colors: dict[str, str]) -> None:
+        nav_icons = ("grid", "sliders", "help")
+        for button, name in zip(self._nav_buttons, nav_icons):
+            button.setIcon(
+                icons.toggle_icon(name, colors["muted"], colors["primary"])
+            )
+            button.setIconSize(QSize(16, 16))
+        self.overview.apply_icons(colors)
 
     def _update_theme_button(self) -> None:
         self.theme_button.setText("深色模式" if self._theme_name == "light" else "浅色模式")
 
     def _toggle_theme(self) -> None:
         self._theme_name = "dark" if self._theme_name == "light" else "light"
-        theme.apply_theme(QApplication.instance(), self._theme_name)
+        colors = theme.apply_theme(QApplication.instance(), self._theme_name)
         self.qsettings.setValue("theme", self._theme_name)
         self._update_theme_button()
+        self._apply_icons(colors)
 
     def _show_about(self) -> None:
         QMessageBox.about(
@@ -423,6 +450,17 @@ class MainWindow(QMainWindow):
     def _on_save_clicked(self) -> None:
         if self._save_config(show_message=True):
             self.statusBar().showMessage("已保存 key.txt；重新部署后生效", 5000)
+
+    def _request_save(self) -> None:
+        """Ctrl+S：没有未保存修改时只提示，不重复写盘。"""
+        if self.doc is None:
+            self._select_page(1)
+            dialogs.show_error(self, "无法保存", "key.txt 还未成功载入。")
+            return
+        if not self.settings_page.is_dirty():
+            self.statusBar().showMessage("没有需要保存的修改", 3000)
+            return
+        self._on_save_clicked()
 
     def _save_config(self, show_message: bool = True) -> bool:
         if self.doc is None:
@@ -724,7 +762,13 @@ class MainWindow(QMainWindow):
         message, dialog_kind = self._result_message(
             action_key, success, outcome, raw_text
         )
-        self.overview.finish_operation(success, message)
+        if success:
+            level = "success"
+        elif outcome.canceled or self._host_canceled:
+            level = "warn"
+        else:
+            level = "error"
+        self.overview.finish_operation(success, message, level)
         self._update_actions()
         self.statusBar().showMessage(message, 8000)
         if dialog_kind == "info":
@@ -757,7 +801,7 @@ class MainWindow(QMainWindow):
                 checked_at=datetime.now(),
             )
             self.status_report = stopped
-            self.overview.status_board.mark_stopped()
+            self.overview.mark_stopped()
 
     def _apply_report(self, report: StatusReport) -> None:
         self.status_report = report

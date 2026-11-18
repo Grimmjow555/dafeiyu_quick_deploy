@@ -21,6 +21,9 @@ __pycache__/
 build/
 大肥鱼控制台.exe
 
+# 界面评审用的临时截图与测量脚本
+_ui_analysis/
+
 # 常见本地工具目录
 .venv/
 venv/

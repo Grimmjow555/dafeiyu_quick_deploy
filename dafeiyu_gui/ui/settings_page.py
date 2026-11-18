@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -21,11 +22,22 @@ from PyQt5.QtWidgets import (
 from dafeiyu_gui.backend.keyfile import (
     FIELD_GROUPS,
     FIELD_SPECS,
+    REQUIRED_FOR_DEPLOY,
+    FieldSpec,
     KeyDocument,
     ValidationIssue,
     missing_required,
 )
-from dafeiyu_gui.ui.widgets import Banner, PasswordLineEdit, SectionCard
+from dafeiyu_gui.ui.widgets import (
+    MAX_CONTENT_WIDTH,
+    Banner,
+    PasswordLineEdit,
+    SectionCard,
+    repolish,
+)
+
+MARK_WIDTH = 12
+LABEL_WIDTH = 130
 
 
 class SettingsPage(QWidget):
@@ -40,52 +52,62 @@ class SettingsPage(QWidget):
         super().__init__(parent)
         self._doc: KeyDocument | None = None
         self._editors: dict[str, QLineEdit] = {}
-        self._password_widgets: list[PasswordLineEdit] = []
         self._error_labels: dict[str, QLabel] = {}
+        self._field_labels: dict[str, QLabel] = {}
+        self._field_rows: list[tuple[FieldSpec, QWidget, QWidget, str]] = []
+        self._forms: dict[str, QFormLayout] = {}
+        self._group_cards: dict[str, SectionCard] = {}
+        self._original: dict[str, str] = {}
         self._loading = False
         self._dirty = False
         self._busy = False
         self._external_save_enabled = False
         self._qq_present = False
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        column = QWidget()
+        column.setMaximumWidth(MAX_CONTENT_WIDTH)
+        column.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout = QVBoxLayout(column)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
-
-        title = QLabel("配置 key.txt")
-        title.setObjectName("PageTitle")
-        layout.addWidget(title)
-        description = QLabel(
-            "字段与部署脚本读取的 key.txt 完全一致；保存时保留注释、顺序、末尾 URL 行和未知字段。"
-            "敏感值默认隐藏，不会写入日志。"
-        )
-        description.setObjectName("PageDescription")
-        description.setWordWrap(True)
-        layout.addWidget(description)
 
         self.banner = Banner()
         layout.addWidget(self.banner)
 
-        top_row = QHBoxLayout()
-        self.reveal_check = QCheckBox("显示敏感字段")
-        self.reveal_check.toggled.connect(self._set_reveal)
-        top_row.addWidget(self.reveal_check)
-        top_row.addStretch(1)
+        tools = QHBoxLayout()
+        tools.setSpacing(8)
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("搜索字段名或说明…")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.setMaximumWidth(300)
+        self.search_edit.textChanged.connect(self._apply_filter)
+        tools.addWidget(self.search_edit)
+        self.required_only = QCheckBox("只看必填")
+        self.required_only.toggled.connect(self._apply_filter)
+        tools.addWidget(self.required_only)
+        tools.addStretch(1)
         self.dirty_label = QLabel("")
         self.dirty_label.setObjectName("FieldError")
-        top_row.addWidget(self.dirty_label)
-        layout.addLayout(top_row)
+        tools.addWidget(self.dirty_label)
+        layout.addLayout(tools)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 6, 0)
         content_layout.setSpacing(12)
         for group in FIELD_GROUPS:
             specs = [spec for spec in FIELD_SPECS if spec.group == group]
-            card = SectionCard(group)
+            card = SectionCard(group, collapsible=True)
             form = QFormLayout()
             form.setLabelAlignment(Qt.AlignRight | Qt.AlignTop)
             form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
@@ -94,6 +116,8 @@ class SettingsPage(QWidget):
             for spec in specs:
                 self._add_field(form, spec)
             card.body.addLayout(form)
+            self._forms[group] = form
+            self._group_cards[group] = card
             content_layout.addWidget(card)
         self._add_qq_card(content_layout)
         content_layout.addStretch(1)
@@ -122,27 +146,54 @@ class SettingsPage(QWidget):
         self.save_button.clicked.connect(self.save_requested)
         footer.addWidget(self.save_button)
         layout.addLayout(footer)
+
+        row.addStretch(1)
+        row.addWidget(column, 1000)
+        row.addStretch(1)
+        outer.addLayout(row, 1)
         self._apply_editable_state()
 
-    def _add_field(self, form: QFormLayout, spec) -> None:
+    # ---------------- 构建 ----------------
+
+    def _add_field(self, form: QFormLayout, spec: FieldSpec) -> None:
+        required = spec.name in REQUIRED_FOR_DEPLOY
+        # 必填星号放在固定宽度的小格子里，这样每一行标签的右边缘都对齐。
+        holder = QWidget()
+        holder_layout = QHBoxLayout(holder)
+        holder_layout.setContentsMargins(0, 0, 0, 0)
+        holder_layout.setSpacing(0)
+        mark = QLabel("*" if required else "")
+        mark.setObjectName("RequiredMark")
+        mark.setFixedWidth(MARK_WIDTH)
+        mark.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        mark.setToolTip("必填" if required else "")
         label = QLabel(spec.label)
-        label.setMinimumWidth(130)
+        label.setObjectName("FieldLabel")
+        label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        label.setProperty("fieldState", "")
+        # 左侧留伸缩位，让「* + 标签」整体靠右；所有行的文字右边缘因此对齐。
+        holder_layout.addStretch(1)
+        holder_layout.addWidget(mark, 0)
+        holder_layout.addWidget(label, 0)
+        holder.setMinimumWidth(MARK_WIDTH + LABEL_WIDTH)
+
         editor_box = QWidget()
         editor_layout = QVBoxLayout(editor_box)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(2)
         if spec.secret:
             editor = PasswordLineEdit()
-            editor.setPlaceholderText(spec.placeholder or "已填写时显示为圆点")
-            self._password_widgets.append(editor)
+            editor.setPlaceholderText(
+                spec.placeholder or ("必填" if required else "可选，留空则不启用")
+            )
             line_edit = editor.line_edit
         else:
             editor = QLineEdit()
-            editor.setPlaceholderText(spec.placeholder)
+            editor.setPlaceholderText(
+                spec.placeholder or ("必填" if required else "可留空")
+            )
             line_edit = editor
-            editor_layout.addWidget(editor)
-        if spec.secret:
-            editor_layout.addWidget(editor)
+        editor_layout.addWidget(editor)
         if spec.hint:
             hint = QLabel(spec.hint)
             hint.setObjectName("FieldHint")
@@ -156,7 +207,10 @@ class SettingsPage(QWidget):
         line_edit.textChanged.connect(lambda _text, field=spec.name: self._on_edited(field))
         self._editors[spec.name] = line_edit
         self._error_labels[spec.name] = error
-        form.addRow(label, editor_box)
+        self._field_labels[spec.name] = label
+        haystack = f"{spec.label} {spec.name} {spec.hint}".lower()
+        self._field_rows.append((spec, holder, editor_box, haystack))
+        form.addRow(holder, editor_box)
 
     def _add_qq_card(self, content_layout: QVBoxLayout) -> None:
         card = SectionCard(
@@ -164,6 +218,7 @@ class SettingsPage(QWidget):
             "界面从不读取或显示 QQ.txt 内容。存在该文件时部署成功会自动同步为服务器 "
             "~/dafeiyu/secret/qq-login.txt（600）。",
         )
+        self._qq_card = card
         row = QHBoxLayout()
         self.qq_status_label = QLabel("未检测到 QQ.txt")
         self.qq_status_label.setObjectName("CardHint")
@@ -182,20 +237,72 @@ class SettingsPage(QWidget):
         card.body.addWidget(hint)
         content_layout.addWidget(card)
 
+    # ---------------- 编辑状态 ----------------
+
     def _on_edited(self, field: str = "") -> None:
         if self._loading:
             return
         if field and field in self._error_labels:
             self._error_labels[field].clear()
             self._error_labels[field].hide()
-        if not self._dirty:
-            self._dirty = True
-            self.dirty_label.setText("● 有未保存修改")
-            self.dirty_changed.emit(True)
+        if field:
+            self._refresh_field_marker(field)
+        self._refresh_dirty_state()
 
-    def _set_reveal(self, revealed: bool) -> None:
-        for editor in self._password_widgets:
-            editor.set_revealed(revealed)
+    def _refresh_dirty_state(self) -> None:
+        dirty = any(
+            editor.text().strip() != self._original.get(name, "")
+            for name, editor in self._editors.items()
+        )
+        if dirty == self._dirty:
+            return
+        self._dirty = dirty
+        self.dirty_label.setText("● 有未保存修改" if dirty else "")
+        self.dirty_changed.emit(dirty)
+
+    def _refresh_field_marker(self, field: str) -> None:
+        label = self._field_labels.get(field)
+        if label is None:
+            return
+        editor = self._editors.get(field)
+        if editor is None:
+            return
+        changed = editor.text().strip() != self._original.get(field, "")
+        state = "dirty" if changed else ""
+        if label.property("fieldState") != state:
+            label.setProperty("fieldState", state)
+            repolish(label)
+
+    def _apply_filter(self, *_args) -> None:
+        """按搜索词/必填筛选。
+
+        隐藏 QFormLayout 的行仍会留下行间距，所以这里直接重建每一组的行：
+        用 takeRow 取出（不销毁）控件，再按需 addRow 回去。
+        """
+        query = self.search_edit.text().strip().lower()
+        required_only = self.required_only.isChecked()
+        active = bool(query) or required_only
+        for form in self._forms.values():
+            while form.count():
+                form.takeRow(0)
+        matches: dict[str, int] = {group: 0 for group in FIELD_GROUPS}
+        for spec, holder, editor_box, haystack in self._field_rows:
+            visible = True
+            if query and query not in haystack:
+                visible = False
+            if required_only and spec.name not in REQUIRED_FOR_DEPLOY:
+                visible = False
+            holder.setVisible(visible)
+            editor_box.setVisible(visible)
+            if visible:
+                self._forms[spec.group].addRow(holder, editor_box)
+                matches[spec.group] = matches.get(spec.group, 0) + 1
+        for group, card in self._group_cards.items():
+            has_match = matches.get(group, 0) > 0
+            card.setVisible(has_match or not active)
+            if active and has_match:
+                card.set_collapsed(False)
+        self._qq_card.setVisible(not active)
 
     def _apply_editable_state(self) -> None:
         parse_broken = bool(self._doc and self._doc.parse_errors)
@@ -209,21 +316,30 @@ class SettingsPage(QWidget):
         self.reload_button.setEnabled(not self._busy)
         self.open_key_button.setEnabled(True)
         self.open_project_button.setEnabled(True)
+        self.search_edit.setEnabled(has_doc)
+        self.required_only.setEnabled(has_doc)
+
+    # ---------------- 文档 ----------------
 
     def load_document(self, doc: KeyDocument | None) -> None:
         self._loading = True
         try:
             self._doc = doc
             values = doc.values if doc else {}
+            self._original = {name: str(values.get(name, "")).strip() for name in self._editors}
             for name, editor in self._editors.items():
                 editor.setText(values.get(name, ""))
             for label in self._error_labels.values():
                 label.clear()
                 label.hide()
+            for name in self._field_labels:
+                label = self._field_labels[name]
+                if label.property("fieldState"):
+                    label.setProperty("fieldState", "")
+                    repolish(label)
             self._dirty = False
             self.dirty_label.setText("")
             self.dirty_changed.emit(False)
-            self.reveal_check.setChecked(False)
             if doc is None:
                 self.banner.show_message("未找到或无法读取 key.txt，请先修正文件。", "error")
             elif doc.parse_errors:
@@ -292,13 +408,3 @@ class SettingsPage(QWidget):
 
     def set_sync_password_enabled(self, enabled: bool) -> None:
         self.sync_password_button.setEnabled(enabled and self._qq_present and not self._busy)
-
-    def focus_field(self, name: str) -> None:
-        editor = self._editors.get(name)
-        if editor is not None:
-            editor.setFocus()
-            editor.selectAll()
-
-    def discard_unsaved(self) -> None:
-        """把表单恢复到最近一次加载的文档内容。"""
-        self.load_document(self._doc)

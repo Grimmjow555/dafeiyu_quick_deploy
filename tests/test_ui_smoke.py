@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -19,8 +20,9 @@ from tests.helpers import (  # noqa: E402 - 先设置 Qt 环境
 )
 
 from PyQt5.QtCore import QSettings  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QDialog, QLineEdit, QWidget  # noqa: E402
+from PyQt5.QtWidgets import QApplication, QDialog, QLabel, QLineEdit, QWidget  # noqa: E402
 
+from dafeiyu_gui.backend.status import StatusReport  # noqa: E402
 from dafeiyu_gui.ui import dialogs, theme  # noqa: E402
 from dafeiyu_gui.ui.main_window import MainWindow  # noqa: E402
 
@@ -139,6 +141,68 @@ class UiSmokeTests(unittest.TestCase):
         finally:
             second.close()
             self.app.processEvents()
+
+    def test_finish_operation_keeps_result_visible(self) -> None:
+        self.window.show()
+        self.window._select_page(0)
+        self.app.processEvents()
+        self.window.overview.begin_operation("一键部署 / 更新", True)
+        self.window.overview.finish_operation(True, "部署 / 更新完成", "success")
+        self.app.processEvents()
+        self.assertFalse(self.window.overview.progress_panel.isVisible())
+        self.assertTrue(self.window.overview.result_bar.isVisible())
+        self.assertEqual(self.window.overview.result_bar._text.text(), "部署 / 更新完成")
+
+    def test_stop_action_refreshes_checked_hint(self) -> None:
+        self.window.overview.apply_report(
+            StatusReport(services="running", checked_at=datetime(2020, 1, 1, 3, 4, 5))
+        )
+        before = self.window.overview._status_hint.text()
+        self.window._apply_action_status("stop", {}, "")
+        after = self.window.overview._status_hint.text()
+        self.assertNotEqual(before, after)
+        self.assertIn("本地停止操作", after)
+        self.assertEqual(self.window.overview.status_board.services._value.text(), "已停止")
+
+    def test_status_detail_is_elided_with_full_tooltip(self) -> None:
+        self.window.show()
+        self.window._select_page(0)
+        self.window.resize(1000, 700)
+        self.app.processEvents()
+        card = self.window.overview.status_board.qq
+        full = "账号 10001 · loginPhase=5 · 掉线守护恢复正常 · 最近一次快速登录成功"
+        card.set_state("在线", "ok", full)
+        self.app.processEvents()
+        self.assertTrue(card._detail.text().endswith("…"), card._detail.text())
+        self.assertNotEqual(card._detail.text(), full)
+        self.assertEqual(card._detail.toolTip(), full)
+
+    def test_settings_filter_rebuilds_rows(self) -> None:
+        self.window.show()
+        self.window._select_page(1)
+        self.app.processEvents()
+        page = self.window.settings_page
+        rows = {spec.name: box for spec, _holder, box, _hay in page._field_rows}
+        page.search_edit.setText("token")
+        self.app.processEvents()
+        self.assertTrue(rows["SSH_HOST"].isHidden())
+        self.assertFalse(rows["NAPCAT_TOKEN"].isHidden())
+        self.assertTrue(page._group_cards["服务器"].isHidden())
+        self.assertFalse(page._group_cards["高级"].isHidden())
+        page.search_edit.clear()
+        self.app.processEvents()
+        self.assertFalse(rows["SSH_HOST"].isHidden())
+        self.assertFalse(page._group_cards["服务器"].isHidden())
+
+    def test_required_fields_are_marked(self) -> None:
+        page = self.window.settings_page
+        self.assertEqual(page._field_labels["SSH_HOST"].text(), "服务器地址")
+        marks = [
+            label.text()
+            for label in page.findChildren(QLabel)
+            if label.objectName() == "RequiredMark"
+        ]
+        self.assertEqual(marks.count("*"), 6)
 
 
 if __name__ == "__main__":

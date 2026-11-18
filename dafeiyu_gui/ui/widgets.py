@@ -1,4 +1,4 @@
-"""可复用的小组件：卡片、状态、阶段条、日志、密码输入行。"""
+"""可复用的小组件：卡片、状态、阶段条、日志、结果条、密码输入行。"""
 
 from __future__ import annotations
 
@@ -36,6 +36,9 @@ LOG_COLORS = {
     "success": "#5DD39E",
 }
 
+# 内容列最大宽度：超宽屏上不再把按钮和日志拉满整个窗口。
+MAX_CONTENT_WIDTH = 1120
+
 
 def repolish(widget: QWidget) -> None:
     style = widget.style()
@@ -45,36 +48,77 @@ def repolish(widget: QWidget) -> None:
 
 
 class SectionCard(QFrame):
-    def __init__(self, title: str, subtitle: str = "", parent: QWidget | None = None) -> None:
+    """带标题的卡片；``collapsible=True`` 时标题右侧出现折叠按钮。"""
+
+    def __init__(
+        self,
+        title: str,
+        subtitle: str = "",
+        parent: QWidget | None = None,
+        collapsible: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("Card")
+        self._collapsed = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
-        header = QVBoxLayout()
-        header.setSpacing(2)
+        header = QHBoxLayout()
+        header.setSpacing(6)
+        title_box = QVBoxLayout()
+        title_box.setSpacing(2)
         self.title_label = QLabel(title)
         self.title_label.setObjectName("CardTitle")
-        header.addWidget(self.title_label)
+        title_box.addWidget(self.title_label)
         if subtitle:
             subtitle_label = QLabel(subtitle)
             subtitle_label.setObjectName("CardHint")
             subtitle_label.setWordWrap(True)
-            header.addWidget(subtitle_label)
+            title_box.addWidget(subtitle_label)
+        header.addLayout(title_box, 1)
+        self._toggle: QToolButton | None = None
+        if collapsible:
+            self._toggle = QToolButton()
+            self._toggle.setObjectName("SectionToggle")
+            self._toggle.setCursor(Qt.PointingHandCursor)
+            self._toggle.setText("▾")
+            self._toggle.setToolTip("收起这一组")
+            self._toggle.setAutoRaise(True)
+            self._toggle.clicked.connect(lambda: self.set_collapsed(not self._collapsed))
+            header.addWidget(self._toggle, 0, Qt.AlignTop)
         layout.addLayout(header)
-        self.body = QVBoxLayout()
+        self._body_widget = QWidget()
+        self._body_widget.setObjectName("SectionBody")
+        self.body = QVBoxLayout(self._body_widget)
+        self.body.setContentsMargins(0, 0, 0, 0)
         self.body.setSpacing(10)
-        layout.addLayout(self.body)
+        layout.addWidget(self._body_widget)
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        if self._toggle is None:
+            return
+        self._collapsed = collapsed
+        self._body_widget.setVisible(not collapsed)
+        self._toggle.setText("▸" if collapsed else "▾")
+        self._toggle.setToolTip("展开这一组" if collapsed else "收起这一组")
+
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
+    def body_widget(self) -> QWidget:
+        return self._body_widget
 
 
 class StatusCard(QFrame):
+    """状态卡：标题、指示灯 + 值、一行可省略的补充说明。"""
+
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Card")
-        self.setFixedHeight(84)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._full_detail = ""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 8)
+        layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(1)
         self._title = QLabel(title)
         self._title.setObjectName("CardHint")
@@ -92,15 +136,30 @@ class StatusCard(QFrame):
         self._detail = QLabel("")
         self._detail.setObjectName("CardDetail")
         self._detail.setWordWrap(False)
-        self._detail.setFixedHeight(16)
         layout.addWidget(self._detail)
 
     def set_state(self, value: str, state: str = "idle", detail: str = "") -> None:
         self._value.setText(value)
-        self._detail.setText(detail)
+        self._full_detail = detail
         self._detail.setToolTip(detail)
+        self._elide_detail()
         self._dot.setProperty("state", state)
         repolish(self._dot)
+
+    def _elide_detail(self) -> None:
+        width = self._detail.width() - 2
+        if width <= 0:
+            self._detail.setText(self._full_detail)
+            return
+        self._detail.setText(
+            self._detail.fontMetrics().elidedText(
+                self._full_detail, Qt.ElideRight, width
+            )
+        )
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt 命名
+        super().resizeEvent(event)
+        self._elide_detail()
 
 
 def _state_for_service(services: str) -> str:
@@ -196,10 +255,6 @@ class StatusBoard(QWidget):
         self.watchdog.set_state("未运行", "warn", "随停止命令一起停止")
         self.plugins.set_state("—", "idle", "")
 
-    def mark_started(self) -> None:
-        self.services.set_state("运行中", "ok", "启动命令已执行")
-        self.watchdog.set_state("运行中", "ok", "启动命令已执行")
-
 
 class StepIndicator(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -264,6 +319,46 @@ class Banner(QFrame):
         self.hide()
 
 
+class ResultBar(QFrame):
+    """最近一次操作的结果摘要；不会挡住配置校验横幅。"""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("ResultBar")
+        self.setProperty("level", "success")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 8, 6, 8)
+        layout.setSpacing(8)
+        self._icon = QLabel("✓")
+        self._icon.setObjectName("ResultIcon")
+        self._icon.setFixedWidth(16)
+        self._text = QLabel("")
+        self._text.setWordWrap(True)
+        self._close = QToolButton()
+        self._close.setObjectName("ResultClose")
+        self._close.setText("✕")
+        self._close.setToolTip("关闭这条提示")
+        self._close.setCursor(Qt.PointingHandCursor)
+        self._close.clicked.connect(self.clear)
+        layout.addWidget(self._icon)
+        layout.addWidget(self._text, 1)
+        layout.addWidget(self._close)
+        self.hide()
+
+    def show_result(self, text: str, level: str = "success") -> None:
+        self._icon.setText(
+            {"success": "✓", "error": "!", "warn": "!", "info": "i"}.get(level, "i")
+        )
+        self._text.setText(text)
+        self.setProperty("level", level)
+        repolish(self)
+        self.show()
+
+    def clear(self) -> None:
+        self._text.clear()
+        self.hide()
+
+
 class LogView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -295,7 +390,6 @@ class LogView(QWidget):
         self.edit.setUndoRedoEnabled(False)
         self.edit.setMaximumBlockCount(20000)
         self.edit.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        self.edit.setFont(QFont("Consolas", 9))
         self.edit.setPlaceholderText(
             "尚未运行操作。首次使用请先在「配置」检查 key.txt，然后点击「一键部署 / 更新」。"
         )
@@ -387,9 +481,6 @@ class PasswordLineEdit(QWidget):
 
     def setPlaceholderText(self, text: str) -> None:
         self.line_edit.setPlaceholderText(text)
-
-    def setEnabled(self, enabled: bool) -> None:  # noqa: N802 - Qt 命名
-        super().setEnabled(enabled)
 
 
 def open_local_path(path: Path) -> bool:

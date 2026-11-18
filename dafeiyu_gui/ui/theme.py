@@ -18,6 +18,7 @@ LIGHT: dict[str, str] = {
     "primary": "#2F6FED",
     "primary_hover": "#245CCB",
     "primary_soft": "#E8F0FE",
+    "on_primary": "#FFFFFF",
     "success": "#16875A",
     "success_soft": "#E7F6EF",
     "warning": "#B26A00",
@@ -42,6 +43,7 @@ DARK: dict[str, str] = {
     "primary": "#6C9BFF",
     "primary_hover": "#86ADFF",
     "primary_soft": "#1E2F55",
+    "on_primary": "#0B1220",
     "success": "#4FD1A1",
     "success_soft": "#183B32",
     "warning": "#F2C14E",
@@ -57,10 +59,17 @@ DARK: dict[str, str] = {
 
 THEMES = {"light": LIGHT, "dark": DARK}
 
+# 中文需要显式的回退链：Windows / macOS / Linux 各自命中一个。
+FONT_STACK = (
+    '"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", '
+    '"Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", '
+    '"Segoe UI", sans-serif'
+)
+
 _QSS = Template(
     """
     QWidget {
-        font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI";
+        font-family: $font_stack;
         font-size: 9.5pt;
         color: $text;
     }
@@ -94,7 +103,7 @@ _QSS = Template(
         color: $muted;
     }
     QLabel#AppSubtitle {
-        font-size: 8.5pt;
+        font-size: 9pt;
     }
     QLabel#PageTitle {
         font-size: 15pt;
@@ -111,7 +120,7 @@ _QSS = Template(
         font-size: 9pt;
     }
     QLabel#CardDetail {
-        font-size: 8.5pt;
+        font-size: 9pt;
     }
     QLabel#StatusValue {
         font-size: 12pt;
@@ -131,25 +140,36 @@ _QSS = Template(
         border: 1px solid $border;
         border-radius: 12px;
         padding: 4px 12px;
-        font-size: 8.5pt;
+        font-size: 9pt;
     }
     QLabel#InlineNote {
         color: $muted;
-        font-size: 8.5pt;
+        font-size: 9pt;
+    }
+    QLabel#FieldLabel {
+        color: $text;
+    }
+    QLabel#FieldLabel[fieldState="dirty"] {
+        color: $primary;
+        font-weight: 600;
+    }
+    QLabel#RequiredMark {
+        color: $danger;
+        font-size: 9pt;
     }
     QLabel#FieldError {
         color: $danger;
-        font-size: 8.5pt;
+        font-size: 9pt;
     }
     QLabel#FieldHint {
-        font-size: 8.5pt;
+        font-size: 9pt;
     }
     QLabel#StepChip {
         border-radius: 10px;
         padding: 3px 9px;
         background-color: $surface_alt;
         color: $muted;
-        font-size: 8.5pt;
+        font-size: 9pt;
         border: 1px solid transparent;
     }
     QLabel#StepChip[stepState="done"] {
@@ -158,7 +178,7 @@ _QSS = Template(
     }
     QLabel#StepChip[stepState="current"] {
         background-color: $primary;
-        color: #FFFFFF;
+        color: $on_primary;
         font-weight: 600;
     }
     QLabel#StepArrow {
@@ -200,6 +220,53 @@ _QSS = Template(
         background: transparent;
         color: $text;
     }
+    QFrame#ResultBar {
+        border: 1px solid $border;
+        border-radius: 8px;
+        background-color: $surface_alt;
+    }
+    QFrame#ResultBar[level="success"] {
+        background-color: $success_soft;
+        border-color: $success;
+    }
+    QFrame#ResultBar[level="error"] {
+        background-color: $danger_soft;
+        border-color: $danger;
+    }
+    QFrame#ResultBar[level="warn"] {
+        background-color: $warning_soft;
+        border-color: $warning;
+    }
+    QFrame#ResultBar[level="info"] {
+        background-color: $info_soft;
+        border-color: $info;
+    }
+    QFrame#ResultBar QLabel {
+        background: transparent;
+        color: $text;
+    }
+    QLabel#ResultIcon {
+        font-weight: 700;
+    }
+    QToolButton#ResultClose {
+        background: transparent;
+        border: none;
+        color: $muted;
+        padding: 2px 6px;
+    }
+    QToolButton#ResultClose:hover {
+        color: $text;
+    }
+    QToolButton#SectionToggle {
+        background: transparent;
+        border: none;
+        color: $muted;
+        font-size: 10pt;
+        padding: 0 4px;
+    }
+    QToolButton#SectionToggle:hover {
+        color: $primary;
+    }
     QPushButton {
         background-color: $surface_alt;
         color: $text;
@@ -221,7 +288,7 @@ _QSS = Template(
     }
     QPushButton#PrimaryButton {
         background-color: $primary;
-        color: #FFFFFF;
+        color: $on_primary;
         border: 1px solid $primary;
         font-weight: 600;
         padding: 9px 18px;
@@ -238,10 +305,28 @@ _QSS = Template(
     QPushButton#DangerButton {
         background: transparent;
         color: $danger;
-        border-color: $danger;
+        border: 1px solid $danger;
     }
     QPushButton#DangerButton:hover {
         background-color: $danger_soft;
+    }
+    QPushButton#DangerButton:disabled {
+        color: $disabled;
+        border-color: $border;
+    }
+    QPushButton#SubtleButton {
+        background: transparent;
+        color: $muted;
+        border: 1px solid $border;
+        padding: 6px 12px;
+    }
+    QPushButton#SubtleButton:hover {
+        color: $primary;
+        border-color: $primary;
+    }
+    QPushButton#SubtleButton:disabled {
+        color: $disabled;
+        border-color: $border;
     }
     QPushButton#LinkButton {
         background: transparent;
@@ -336,6 +421,12 @@ _QSS = Template(
         background-color: $primary;
         border-radius: 4px;
     }
+    QSplitter::handle {
+        background: transparent;
+    }
+    QSplitter::handle:vertical {
+        height: 6px;
+    }
     QScrollBar:vertical {
         background: transparent;
         width: 10px;
@@ -366,7 +457,7 @@ _QSS = Template(
         background-color: $surface;
         border-top: 1px solid $border;
         color: $muted;
-        font-size: 8.5pt;
+        font-size: 9pt;
     }
     QTextBrowser#HelpView {
         background-color: $surface;
@@ -403,5 +494,5 @@ def apply_theme(app: QApplication, name: str) -> dict[str, str]:
     palette.setColor(QPalette.ToolTipBase, QColor(colors["surface"]))
     palette.setColor(QPalette.ToolTipText, QColor(colors["text"]))
     app.setPalette(palette)
-    app.setStyleSheet(_QSS.substitute(colors))
+    app.setStyleSheet(_QSS.substitute({**colors, "font_stack": FONT_STACK}))
     return colors

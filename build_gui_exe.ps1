@@ -1,4 +1,4 @@
-﻿# 构建单文件 Windows 图形界面 exe。
+# 构建单文件 Windows 图形界面 exe。
 # 用法（在项目目录）：powershell -NoProfile -ExecutionPolicy Bypass -File .\build_gui_exe.ps1
 # 需要本机 Python 3.10+，并安装：python -m pip install pyinstaller pillow PyQt5
 $ErrorActionPreference = 'Stop'
@@ -30,7 +30,7 @@ if (Test-Path -LiteralPath $exePath) {
 $workPath = Join-Path $root 'build\gui-exe'
 New-Item -ItemType Directory -Path $workPath -Force | Out-Null
 
-$assetPath = Join-Path $root 'dafeiyu_gui\assets\app.svg'
+$assetPath = Join-Path $root 'dafeiyu_gui\assets'
 $addData = "${assetPath};dafeiyu_gui/assets"
 
 $arguments = @(

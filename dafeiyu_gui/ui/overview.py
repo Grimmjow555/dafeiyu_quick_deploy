@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -12,14 +12,20 @@ from PyQt5.QtWidgets import (
     QLabel,
     QProgressBar,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from dafeiyu_gui.backend.status import StatusReport
+from dafeiyu_gui.ui import icons
 from dafeiyu_gui.ui.widgets import (
+    MAX_CONTENT_WIDTH,
     Banner,
     LogView,
+    ResultBar,
     SectionCard,
     StatusBoard,
     StepIndicator,
@@ -42,9 +48,31 @@ class OverviewPage(QWidget):
         super().__init__(parent)
         self._busy = False
         self._long_running = False
-        self._qq_password_present = False
         self._urls: dict[str, str] = {}
-        layout = QVBoxLayout(self)
+        self._icon_buttons: list[tuple[QPushButton, str, str]] = []
+        self._user_moved_splitter = False
+        self._fitting = False
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.splitter = QSplitter(Qt.Vertical)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(6)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        container = QWidget()
+        wrap = QHBoxLayout(container)
+        wrap.setContentsMargins(0, 0, 0, 0)
+        wrap.setSpacing(0)
+        self.content = QWidget()
+        self.content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.content.setMaximumWidth(MAX_CONTENT_WIDTH)
+        layout = QVBoxLayout(self.content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
@@ -70,10 +98,7 @@ class OverviewPage(QWidget):
         self._napcat_button.clicked.connect(lambda: self._open_url("NapCat"))
         url_row.addWidget(self._astrbot_button)
         url_row.addWidget(self._napcat_button)
-        port_hint = QLabel("6185 / 6099 · 安全组需放行")
-        port_hint.setObjectName("CardHint")
         url_row.addStretch(1)
-        url_row.addWidget(port_hint)
         layout.addLayout(url_row)
 
         actions_card = SectionCard("操作")
@@ -87,9 +112,12 @@ class OverviewPage(QWidget):
         self.refresh_button = QPushButton("刷新状态")
         self.start_button = QPushButton("启动服务")
         self.stop_button = QPushButton("停止服务…")
+        self.stop_button.setObjectName("DangerButton")
         self.sync_key_button = QPushButton("同步 Token")
         self.sync_password_button = QPushButton("同步密码兜底")
         self.terminal_button = QPushButton("SSH 终端")
+        for button in (self.sync_key_button, self.sync_password_button, self.terminal_button):
+            button.setObjectName("SubtleButton")
         self.deploy_button.clicked.connect(self.deploy_requested)
         self.refresh_button.clicked.connect(self.refresh_requested)
         self.start_button.clicked.connect(self.start_requested)
@@ -155,20 +183,92 @@ class OverviewPage(QWidget):
         self.progress_panel.hide()
         layout.addWidget(self.progress_panel)
 
-        self.log_view = LogView()
-        self.log_view.setMinimumHeight(180)
-        layout.addWidget(self.log_view, 1)
+        self.result_bar = ResultBar()
+        layout.addWidget(self.result_bar)
+        layout.addStretch(1)
 
+        wrap.addStretch(1)
+        wrap.addWidget(self.content, 1000)
+        wrap.addStretch(1)
+        scroll.setWidget(container)
+
+        self.log_view = LogView()
+        self.log_view.setMinimumHeight(120)
+        self.log_view.setMaximumWidth(MAX_CONTENT_WIDTH)
+        log_container = QWidget()
+        log_row = QHBoxLayout(log_container)
+        log_row.setContentsMargins(0, 0, 0, 0)
+        log_row.setSpacing(0)
+        log_row.addStretch(1)
+        log_row.addWidget(self.log_view, 1000)
+        log_row.addStretch(1)
+
+        self.splitter.addWidget(scroll)
+        self.splitter.addWidget(log_container)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([470, 200])
+        self.splitter.splitterMoved.connect(self._on_splitter_moved)
+        outer.addWidget(self.splitter)
+
+        self._icon_buttons = [
+            (self.deploy_button, "deploy", "on_primary"),
+            (self.refresh_button, "refresh", "muted"),
+            (self.start_button, "play", "muted"),
+            (self.stop_button, "stop", "danger"),
+            (self.sync_key_button, "key", "muted"),
+            (self.sync_password_button, "lock", "muted"),
+            (self.terminal_button, "terminal", "muted"),
+            (self.open_folder_button, "folder", "muted"),
+        ]
         self.set_available({})
 
-    def set_server(self, text: str) -> None:
-        self.setWindowTitle(text)
+    # ---------------- 图标 / 链接 ----------------
+
+    def apply_icons(self, colors: dict[str, str]) -> None:
+        for button, name, role in self._icon_buttons:
+            button.setIcon(icons.icon(name, icons.resolve(role, colors)))
+            button.setIconSize(QSize(16, 16))
 
     def show_banner(self, text: str, level: str = "info") -> None:
         self.banner.show_message(text, level)
+        self._schedule_fit()
 
     def hide_banner(self) -> None:
         self.banner.hide_banner()
+        self._schedule_fit()
+
+    # ---------------- 上下两个面板的高度 ----------------
+
+    def _on_splitter_moved(self, *_args) -> None:
+        if not self._fitting:
+            self._user_moved_splitter = True
+
+    def _schedule_fit(self) -> None:
+        QTimer.singleShot(0, self._fit_top_pane)
+
+    def _fit_top_pane(self) -> None:
+        """让上方面板贴合内容高度，避免把按钮行切成两半。
+
+        用户手动拖过一次分割条之后就不再自动调整。
+        """
+        if self._user_moved_splitter:
+            return
+        total = sum(self.splitter.sizes())
+        if total <= 0:
+            return
+        ideal = self.content.sizeHint().height()
+        log_min = 140
+        top = max(200, min(ideal, total - log_min))
+        self._fitting = True
+        try:
+            self.splitter.setSizes([top, total - top])
+        finally:
+            self._fitting = False
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt 命名
+        super().showEvent(event)
+        self._schedule_fit()
 
     def set_available(self, available: dict[str, bool]) -> None:
         mapping = {
@@ -185,7 +285,6 @@ class OverviewPage(QWidget):
         self.open_folder_button.setEnabled(True)
 
     def set_qq_password_present(self, present: bool) -> None:
-        self._qq_password_present = present
         if present:
             self.sync_password_button.setToolTip(
                 "执行 upload.ps1 -SyncPassword：把 QQ.txt 同步到服务器密码兜底文件（内容不会显示）。"
@@ -200,12 +299,16 @@ class OverviewPage(QWidget):
         for key, button in (("AstrBot", self._astrbot_button), ("NapCat", self._napcat_button)):
             url = self._urls.get(key, "")
             button.setEnabled(bool(url))
-            button.setToolTip(url or "key.txt 中还没有有效的 SSH_HOST")
+            button.setToolTip(
+                f"{url}\n端口 6185 / 6099，云安全组需要放行。" if url else "key.txt 中还没有有效的 SSH_HOST"
+            )
 
     def _open_url(self, key: str) -> None:
         url = self._urls.get(key)
         if url:
             self.open_url_requested.emit(url)
+
+    # ---------------- 状态 ----------------
 
     def apply_local_config(self, values: dict[str, str]) -> None:
         self.status_board.apply_local_config(values)
@@ -222,9 +325,17 @@ class OverviewPage(QWidget):
             "状态未知。点击「刷新状态」查询服务器（不会自动轮询，避免 NapCat 限流）。"
         )
 
+    def mark_stopped(self) -> None:
+        """停止命令完成后同步卡片与检查时间，避免两者不一致。"""
+        self.status_board.mark_stopped()
+        self._status_hint.setText(f"最近检查：{datetime.now():%H:%M:%S}（本地停止操作）")
+
+    # ---------------- 操作过程 ----------------
+
     def begin_operation(self, title: str, long_running: bool) -> None:
         self._busy = True
         self._long_running = long_running
+        self.result_bar.clear()
         self.actions_card.hide()
         self.progress_panel.show()
         self._progress_label.setText(f"正在执行：{title}")
@@ -241,7 +352,11 @@ class OverviewPage(QWidget):
         else:
             self.step_indicator.hide()
             self._progress_bar.setRange(0, 0)
+        sizes = self.splitter.sizes()
+        if len(sizes) == 2 and sizes[1] < 160:
+            self.splitter.setSizes([max(200, sizes[0] - 60), 160])
         self.set_available({})
+        self._schedule_fit()
 
     def update_step(self, current: int, percent: int, done: bool = False) -> None:
         if not self._long_running:
@@ -257,9 +372,10 @@ class OverviewPage(QWidget):
     def set_progress_detail(self, text: str) -> None:
         self._progress_hint.setText(text)
 
-    def finish_operation(self, success: bool, message: str) -> None:
+    def finish_operation(self, success: bool, message: str, level: str = "") -> None:
         self._busy = False
-        self._progress_label.setText(message)
+        if not level:
+            level = "success" if success else "error"
         if self._long_running:
             self.step_indicator.set_current(6, done=success)
             self._progress_bar.setRange(0, 100)
@@ -270,12 +386,18 @@ class OverviewPage(QWidget):
         self.cancel_button.setEnabled(False)
         self.progress_panel.hide()
         self.actions_card.show()
+        # 结果放在独立的 ResultBar 里：进度面板收起后用户仍然看得到结论。
+        if message:
+            self.result_bar.show_result(message, level)
+        self._schedule_fit()
 
     def set_busy(self, busy: bool) -> None:
         self._busy = busy
         if not busy:
             return
         self.set_available({})
+
+    # ---------------- 日志 ----------------
 
     def append_log(self, text: str, kind: str = "normal") -> None:
         self.log_view.append_line(text, kind)
